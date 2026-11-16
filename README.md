@@ -77,6 +77,12 @@ correct when Groq retires or adds models. If the call fails, the built-in fallba
 
 All three accept `response_format: {"type": "json_object"}`, which the app relies on.
 
+Groq's JSON validator rejects a completion that is not valid JSON, returning `400 Failed to validate
+JSON` with the model's raw output in `failed_generation`. The app handles that in two steps: it first
+tries to parse `failed_generation` directly, and if that is unusable it retries the same prompt once
+without `response_format`, parsing the JSON out of the plain-text reply. The prompt schema is written
+without `//` comments for the same reason — models echo them and the result stops being valid JSON.
+
 ## Reading 100–500 posts on an 8k tokens/minute budget
 
 A 500-post timeline is roughly 20,000 tokens, which cannot fit in one free-tier request. So the app

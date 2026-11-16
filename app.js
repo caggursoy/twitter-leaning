@@ -270,36 +270,41 @@ function chunkPosts(posts, charBudget) {
   return chunks;
 }
 
-const AXIS_RULES =
-  "economic: -1 = far left (redistribution, state ownership, strong regulation) .. +1 = far right (free markets, low taxes, privatisation). " +
-  "social: -1 = libertarian (civil liberties, permissive, anti-surveillance) .. +1 = authoritarian (order, tradition, surveillance, restrictions).";
+const FIELD_ECON =
+  "- economic: number from -1 to 1. -1 means far left (redistribution, state ownership, strong regulation); +1 means far right (free markets, low taxes, privatisation).";
+const FIELD_SOCIAL =
+  "- social: number from -1 to 1. -1 means libertarian (civil liberties, permissive, anti-surveillance); +1 means authoritarian (order, tradition, surveillance, restrictions).";
+const JSON_ONLY_RULE =
+  "Output only the JSON object. No comments, no markdown fences, no text before or after it.";
 
 const PARTIAL_INSTRUCTION =
   "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
   "This is one batch of a longer timeline. Return one JSON object with exactly these keys:\n" +
-  '{\n' +
-  '  "economic": number,   // ' + AXIS_RULES + '\n' +
-  '  "social": number,     // see above\n' +
-  '  "confidence": number, // 0..1 for this batch alone\n' +
-  '  "themes": string[],   // 2-5 short labels seen in this batch\n' +
-  '  "evidence": [{"tweet_id": string, "quote": string, "why": string}], // 1-2 items, quote verbatim\n' +
-  '  "note": string        // one sentence on what this batch shows\n' +
-  '}\n' +
-  "Rules: use only the posts above; reposts and replies count as signal; if this batch is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed.";
+  '{"economic": 0.0, "social": 0.0, "confidence": 0.0, "themes": [], "evidence": [{"tweet_id": "", "quote": "", "why": ""}], "note": ""}\n' +
+  "Field meanings:\n" +
+  FIELD_ECON + "\n" +
+  FIELD_SOCIAL + "\n" +
+  "- confidence: number from 0 to 1 for this batch alone.\n" +
+  "- themes: 2 to 5 short labels seen in this batch.\n" +
+  "- evidence: 1 or 2 items, each quoting a post verbatim and naming the tweet_id it came from.\n" +
+  "- note: one sentence on what this batch shows.\n" +
+  "Rules: use only the posts above; reposts and replies count as signal; if this batch is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed. " +
+  JSON_ONLY_RULE;
 
 const FINAL_INSTRUCTION =
   "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
   "Return one JSON object with exactly these keys:\n" +
-  '{\n' +
-  '  "economic": number,   // ' + AXIS_RULES + '\n' +
-  '  "social": number,     // see above\n' +
-  '  "confidence": number, // 0..1, how well the posts support the placement\n' +
-  '  "summary": string,    // 2-4 sentences on the alignment and what drives it\n' +
-  '  "themes": string[],   // 3-6 short labels, e.g. "free markets", "immigration"\n' +
-  '  "evidence": [{"tweet_id": string, "quote": string, "why": string}], // 3-6 items, quote verbatim from the posts above\n' +
-  '  "caveats": string     // one or two sentences on what this reading cannot capture\n' +
-  '}\n' +
-  "Rules: use only the posts above; reposts and replies count as signal; if the account is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed.";
+  '{"economic": 0.0, "social": 0.0, "confidence": 0.0, "summary": "", "themes": [], "evidence": [{"tweet_id": "", "quote": "", "why": ""}], "caveats": ""}\n' +
+  "Field meanings:\n" +
+  FIELD_ECON + "\n" +
+  FIELD_SOCIAL + "\n" +
+  "- confidence: number from 0 to 1, how well the posts support the placement.\n" +
+  "- summary: 2 to 4 sentences on the alignment and what drives it.\n" +
+  "- themes: 3 to 6 short labels, for example free markets or immigration.\n" +
+  "- evidence: 3 to 6 items, each quoting a post verbatim and naming the tweet_id it came from.\n" +
+  "- caveats: one or two sentences on what this reading cannot capture.\n" +
+  "Rules: use only the posts above; reposts and replies count as signal; if the account is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed. " +
+  JSON_ONLY_RULE;
 
 function buildPrompt(handle, entries, meta) {
   const header =
@@ -333,16 +338,17 @@ function buildSynthesisPrompt(handle, partials, totalPosts, window) {
     "BATCH RESULTS\n" + blocks.join("\n") +
     "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
     "Return one JSON object with exactly these keys:\n" +
-    '{\n' +
-    '  "economic": number,   // ' + AXIS_RULES + '\n' +
-    '  "social": number,     // see above\n' +
-    '  "confidence": number, // 0..1 for the merged placement\n' +
-    '  "summary": string,    // 2-4 sentences on the alignment and what drives it\n' +
-    '  "themes": string[],   // 3-6 short labels\n' +
-    '  "evidence": [{"tweet_id": string, "quote": string, "why": string}], // 3-6 items, reuse ids and quotes from the batches\n' +
-    '  "caveats": string     // one or two sentences on what this reading cannot capture\n' +
-    '}\n' +
-    "Rules: weight batches by their confidence; never invent quotes or ids; if the batches disagree, say so in caveats and lower confidence."
+    '{"economic": 0.0, "social": 0.0, "confidence": 0.0, "summary": "", "themes": [], "evidence": [{"tweet_id": "", "quote": "", "why": ""}], "caveats": ""}\n' +
+    "Field meanings:\n" +
+    FIELD_ECON + "\n" +
+    FIELD_SOCIAL + "\n" +
+    "- confidence: number from 0 to 1 for the merged placement.\n" +
+    "- summary: 2 to 4 sentences on the alignment and what drives it.\n" +
+    "- themes: 3 to 6 short labels.\n" +
+    "- evidence: 3 to 6 items, reusing ids and quotes from the batches above.\n" +
+    "- caveats: one or two sentences on what this reading cannot capture.\n" +
+    "Rules: weight batches by their confidence; never invent quotes or ids; if the batches disagree, say so in caveats and lower confidence. " +
+    JSON_ONLY_RULE
   );
 }
 
@@ -375,8 +381,23 @@ async function pace(tokensNeeded) {
   rate.used += tokensNeeded;
 }
 
-async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retries = 1 }) {
+async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retries = 1, jsonMode = true }) {
   await pace(estimateTokens(prompt) + maxTokens);
+
+  const payload = {
+    model,
+    temperature: 0.2,
+    max_tokens: maxTokens,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a careful political-science analyst. You place an X/Twitter account on a two-axis political compass using only the posts you are given. You always answer with a single JSON object and nothing else.",
+      },
+      { role: "user", content: prompt },
+    ],
+  };
+  if (jsonMode) payload.response_format = { type: "json_object" };
 
   const res = await fetch(GROQ_URL, {
     method: "POST",
@@ -384,20 +405,7 @@ async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retr
       "Content-Type": "application/json",
       Authorization: "Bearer " + apiKey,
     },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      max_tokens: maxTokens,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a careful political-science analyst. You place an X/Twitter account on a two-axis political compass using only the posts you are given. You always answer with a single JSON object and nothing else.",
-        },
-        { role: "user", content: prompt },
-      ],
-    }),
+    body: JSON.stringify(payload),
   });
 
   const body = await res.json().catch(() => null);
@@ -407,11 +415,22 @@ async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retr
     await sleep(Math.max(1500, (isFinite(retryAfter) ? retryAfter : 0) * 1000));
     rate.windowStart = 0;
     rate.used = 0;
-    return callGroq({ apiKey, model, prompt, maxTokens, retries: retries - 1 });
+    return callGroq({ apiKey, model, prompt, maxTokens, retries: retries - 1, jsonMode });
   }
 
   if (!res.ok) {
     const message = body?.error?.message || "Groq returned " + res.status;
+    const failed = body?.error?.failed_generation;
+    if (failed && retries > 0) {
+      try {
+        return parseModelJson(failed);
+      } catch (_) {
+        /* fall through to the plain-text retry */
+      }
+    }
+    if (res.status === 400 && retries > 0 && /json/i.test(message)) {
+      return callGroq({ apiKey, model, prompt, maxTokens, retries: retries - 1, jsonMode: false });
+    }
     if (res.status === 401) throw new Error("Groq rejected the API key (401). Check the key and try again.");
     if (res.status === 429) {
       throw new Error("Groq rate limit hit (429) even after waiting. Try again in a minute, or lower the post count.");
@@ -424,7 +443,14 @@ async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retr
 
   const content = body?.choices?.[0]?.message?.content;
   if (!content) throw new Error("Groq returned an empty completion");
-  return parseModelJson(content);
+  try {
+    return parseModelJson(content);
+  } catch (err) {
+    if (retries > 0) {
+      return callGroq({ apiKey, model, prompt, maxTokens, retries: retries - 1, jsonMode: false });
+    }
+    throw err;
+  }
 }
 
 async function analysePosts({ apiKey, model, handle, posts, onProgress }) {
