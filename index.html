@@ -251,7 +251,7 @@
         <div class="method-body">
           <p>
             The app pulls the most recent public posts from the account through the FxTwitter read API,
-            trims them to a token budget, and sends them to a Groq-hosted Llama model with the prompt
+            trims them to a token budget, and sends them to a Groq-hosted OpenAI open-weight model with the prompt
             <em>“read the tweets from this user, provide the political alignment of this user”</em>.
             The model returns two axes in the range −1 to +1: economic (left to right) and social
             (libertarian to authoritarian). The marker is placed from those two numbers.
