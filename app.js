@@ -27,7 +27,9 @@ const FALLBACK_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen
 
 /* Set to the deployed worker URL to run without a user-supplied key.
  * ?proxy=https://... overrides it for testing. */
-const PROXY_URL = new URLSearchParams(location.search).get("proxy") || "";
+const PROXY_URL =
+  new URLSearchParams(location.search).get("proxy") ||
+  "https://twitter-leaning-proxy.caggursoy.workers.dev";
 
 const IDEO_SIZE = 600;
 const IDEO_CELLS = 12;
