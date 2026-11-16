@@ -8,8 +8,9 @@ const MODELS_URL = "https://api.groq.com/openai/v1/models";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 26;
 const TPM_LIMIT = 8000;
-const INPUT_TOKEN_BUDGET = 5200;
-const OUTPUT_TOKENS = 800;
+const INPUT_TOKEN_BUDGET = 5000;
+const OUTPUT_TOKENS = 2000;
+const PARTIAL_TOKENS = 1400;
 const TWEET_CHAR_LIMIT = 420;
 const CHARS_PER_TOKEN = 4;
 const FALLBACK_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
@@ -381,13 +382,17 @@ async function pace(tokensNeeded) {
   rate.used += tokensNeeded;
 }
 
+function isReasoningModel(model) {
+  return /gpt-oss|qwen3|deepseek|reason/i.test(model);
+}
+
 async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retries = 1, jsonMode = true }) {
   await pace(estimateTokens(prompt) + maxTokens);
 
   const payload = {
     model,
     temperature: 0.2,
-    max_tokens: maxTokens,
+    max_completion_tokens: maxTokens,
     messages: [
       {
         role: "system",
@@ -397,6 +402,7 @@ async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retr
       { role: "user", content: prompt },
     ],
   };
+  if (isReasoningModel(model)) payload.reasoning_effort = "low";
   if (jsonMode) payload.response_format = { type: "json_object" };
 
   const res = await fetch(GROQ_URL, {
@@ -441,8 +447,25 @@ async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retr
     throw new Error("Groq error: " + message);
   }
 
-  const content = body?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Groq returned an empty completion");
+  const choice = body?.choices?.[0] || {};
+  const content = choice.message?.content;
+  const finish = choice.finish_reason;
+  const reasoningTokens = body?.usage?.completion_tokens_details?.reasoning_tokens;
+
+  if (!content || !String(content).trim()) {
+    if (retries > 0) {
+      const bigger = Math.min(maxTokens * 2, 4000);
+      return callGroq({ apiKey, model, prompt, maxTokens: bigger, retries: retries - 1, jsonMode });
+    }
+    const detail =
+      finish === "length"
+        ? " the model spent all " + maxTokens + " tokens thinking" +
+          (reasoningTokens ? " (" + reasoningTokens + " reasoning tokens)" : "") +
+          " and never wrote an answer"
+        : " the response had no content";
+    throw new Error("Groq returned an empty completion:" + detail + ". Try a smaller post count or another model.");
+  }
+
   try {
     return parseModelJson(content);
   } catch (err) {
@@ -478,7 +501,7 @@ async function analysePosts({ apiKey, model, handle, posts, onProgress }) {
       totalPosts: posts.length,
       window,
     });
-    partials.push(await callGroq({ apiKey, model, prompt, maxTokens: 600 }));
+    partials.push(await callGroq({ apiKey, model, prompt, maxTokens: PARTIAL_TOKENS }));
   }
 
   onProgress?.("Merging " + chunks.length + " batches…");

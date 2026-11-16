@@ -83,6 +83,12 @@ tries to parse `failed_generation` directly, and if that is unusable it retries 
 without `response_format`, parsing the JSON out of the plain-text reply. The prompt schema is written
 without `//` comments for the same reason — models echo them and the result stops being valid JSON.
 
+`gpt-oss` is a reasoning model, and its thinking tokens count against the same completion budget as the
+visible answer. With a small budget the model spends everything thinking and returns
+`content: ""` with `finish_reason: "length"`. The app therefore sends `max_completion_tokens` (not the
+deprecated `max_tokens`), sets `reasoning_effort: "low"`, and if a reply still comes back empty it
+retries once with double the budget before reporting the reasoning-token count in the error.
+
 ## Reading 100–500 posts on an 8k tokens/minute budget
 
 A 500-post timeline is roughly 20,000 tokens, which cannot fit in one free-tier request. So the app
