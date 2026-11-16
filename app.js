@@ -14,6 +14,71 @@ const PARTIAL_TOKENS = 1400;
 const TWEET_CHAR_LIMIT = 420;
 const CHARS_PER_TOKEN = 4;
 const FALLBACK_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
+
+const IDEO_SIZE = 600;
+const IDEO_CELLS = 12;
+
+const IDEOLOGY_GRID = [
+  ["#b97a57", "#f79398", "#f79398", "#f79398", "#f14952", "#f14952", "#ed1c24", "#ed1c24", "#d7d700", "#d7d700", "#d7d700", "#ff7f27"],
+  ["#b97a57", "#d4aa94", "#d4aa94", "#d4aa94", "#f14952", "#f14952", "#ed1c24", "#ed1c24", "#800080", "#800080", "#800080", "#ff7f27"],
+  ["#b97a57", "#d4aa94", "#d4aa94", "#ffaec9", "#ffaec9", "#ff0080", "#ff0080", "#a9639b", "#a9639b", "#800080", "#800080", "#ff7f27"],
+  ["#b97a57", "#d4aa94", "#ffaec9", "#ffaec9", "#ffaec9", "#ff0080", "#ff0080", "#a9639b", "#a9639b", "#a9639b", "#800080", "#ff7f27"],
+  ["#e3d075", "#e3d075", "#ffaec9", "#ffaec9", "#ffaec9", "#ff0080", "#ff0080", "#a9639b", "#a9639b", "#a9639b", "#0000ff", "#0000ff"],
+  ["#e3d075", "#e3d075", "#808040", "#808040", "#808040", "#99d9ea", "#99d9ea", "#00ffff", "#00ffff", "#00ffff", "#0000ff", "#0000ff"],
+  ["#80ff80", "#80ff80", "#808040", "#808040", "#808040", "#99d9ea", "#99d9ea", "#00ffff", "#00ffff", "#00ffff", "#5fafaf", "#5fafaf"],
+  ["#80ff80", "#80ff80", "#1b8d3d", "#1b8d3d", "#1b8d3d", "#008080", "#008080", "#004040", "#004040", "#004040", "#5fafaf", "#5fafaf"],
+  ["#3eff3e", "#00ae57", "#1b8d3d", "#1b8d3d", "#1b8d3d", "#008080", "#008080", "#004040", "#004040", "#004040", "#4a4aff", "#7092be"],
+  ["#3eff3e", "#00ae57", "#00ae57", "#1b8d3d", "#1b8d3d", "#008080", "#008080", "#004040", "#004040", "#4a4aff", "#4a4aff", "#7092be"],
+  ["#3eff3e", "#00ae57", "#00ae57", "#00ae57", "#808000", "#808000", "#00006c", "#00006c", "#4a4aff", "#4a4aff", "#4a4aff", "#7092be"],
+  ["#3eff3e", "#00350e", "#00350e", "#00350e", "#808000", "#808000", "#00006c", "#00006c", "#004080", "#004080", "#004080", "#7092be"],
+];
+
+const IDEOLOGY_NAMES = [
+  ["Communism", "National Communism", "National Communism", "National Communism", "Totalitarianism", "Totalitarianism", "Nationalism", "Nationalism", "Nationalism", "Fascism", "Fascism", "Fundamentalism"],
+  ["Communism", "National Socialism", "National Socialism", "National Socialism", "Totalitarianism", "Totalitarianism", "Nationalism", "Nationalism", "Nationalism", "Traditionalism", "Traditionalism", "Fundamentalism"],
+  ["Communism", "National Socialism", "National Socialism", "Statism", "Statism", "Authoritarianism", "Authoritarianism", "Conservatism", "Conservatism", "Traditionalism", "Traditionalism", "Fundamentalism"],
+  ["Communism", "National Socialism", "Statism", "Statism", "Statism", "Authoritarianism", "Authoritarianism", "Conservatism", "Conservatism", "Conservatism", "Capitalism", "Fundamentalism"],
+  ["Socialism", "Socialism", "Statism", "Statism", "Statism", "Authoritarianism", "Authoritarianism", "Conservatism", "Conservatism", "Conservatism", "Capitalism", "Capitalism"],
+  ["Socialism", "Socialism", "Social Democracy", "Social Democracy", "Social Democracy", "Liberalism", "Liberalism", "Progressivism", "Progressivism", "Progressivism", "Capitalism", "Capitalism"],
+  ["Democratic Socialism", "Democratic Socialism", "Social Democracy", "Social Democracy", "Social Democracy", "Liberalism", "Liberalism", "Progressivism", "Progressivism", "Progressivism", "Libertarian Capitalism", "Libertarian Capitalism"],
+  ["Democratic Socialism", "Democratic Socialism", "Libertarian Socialism", "Libertarian Socialism", "Libertarian Socialism", "Activism", "Activism", "Libertarianism", "Libertarianism", "Libertarianism", "Libertarian Capitalism", "Libertarian Capitalism"],
+  ["Anarcho-Communism", "Anarcho-Socialism", "Libertarian Socialism", "Libertarian Socialism", "Libertarian Socialism", "Activism", "Activism", "Libertarianism", "Libertarianism", "Libertarianism", "Individualism", "Anarcho-Capitalism"],
+  ["Anarcho-Communism", "Anarcho-Socialism", "Anarcho-Socialism", "Libertarian Socialism", "Libertarian Socialism", "Activism", "Activism", "Libertarianism", "Libertarianism", "Individualism", "Individualism", "Anarcho-Capitalism"],
+  ["Anarcho-Communism", "Anarcho-Socialism", "Anarcho-Socialism", "Anarcho-Socialism", "Syndicalism", "Syndicalism", "Mutualism", "Mutualism", "Individualism", "Individualism", "Individualism", "Anarcho-Capitalism"],
+  ["Anarcho-Communism", "Anarcho-Collectivism", "Anarcho-Collectivism", "Anarcho-Collectivism", "Syndicalism", "Syndicalism", "Mutualism", "Mutualism", "Anarchism", "Anarchism", "Anarchism", "Anarcho-Capitalism"],
+];
+
+const IDEOLOGY_LABELS = [
+  { t: "Communism", x: 0.56, y: 2.0, rot: true },
+  { t: "National\nCommunism", x: 2.5, y: 0.55 },
+  { t: "National\nSocialism", x: 2.5, y: 1.6 },
+  { t: "Totalita-\nrianism", x: 4.5, y: 0.9 },
+  { t: "Nationalism", x: 7.0, y: 0.9 },
+  { t: "Fascism", x: 9.5, y: 0.5 },
+  { t: "Fundamentalism", x: 11.44, y: 1.5, rot: true },
+  { t: "Traditio-\nnalism", x: 9.5, y: 1.6 },
+  { t: "Statism", x: 3.5, y: 2.9 },
+  { t: "Authorit-\narianism", x: 5.5, y: 2.85 },
+  { t: "Conser-\nvatism", x: 7.5, y: 2.85 },
+  { t: "Socialism", x: 1.0, y: 3.5 },
+  { t: "Capitalism", x: 10.5, y: 3.5 },
+  { t: "Social\nDemocracy", x: 2.5, y: 4.6 },
+  { t: "Liberalism", x: 4.5, y: 4.75 },
+  { t: "Progres-\nsivism", x: 7.0, y: 4.75 },
+  { t: "Democratic\nSocialism", x: 1.0, y: 5.6 },
+  { t: "Libertarian\nCapitalism", x: 10.5, y: 5.6 },
+  { t: "Libertarian\nSocialism", x: 2.5, y: 6.6 },
+  { t: "Activism", x: 4.5, y: 6.75 },
+  { t: "Liberta-\nrianism", x: 7.0, y: 6.6 },
+  { t: "Anarcho-\nCommunism", x: 0.6, y: 8.5, rot: true },
+  { t: "Anarcho-\nSocialism", x: 1.5, y: 8.6 },
+  { t: "Syndicalism", x: 3.5, y: 9.75 },
+  { t: "Mutualism", x: 5.5, y: 9.75 },
+  { t: "Individ-\nualism", x: 8.5, y: 9.6 },
+  { t: "Anarcho-\nCapitalism", x: 11.4, y: 9.0, rot: true },
+  { t: "Anarcho-\nCollectivism", x: 1.5, y: 10.6 },
+  { t: "Anarchism", x: 8.0, y: 10.75 },
+];
 const STORE = {
   key: "pc.groqKey",
   handle: "pc.handle",
@@ -44,6 +109,8 @@ const el = {
   profileStats: document.getElementById("profileStats"),
   sampleCount: document.getElementById("sampleCount"),
   quadrantBadge: document.getElementById("quadrantBadge"),
+  ideologyBadge: document.getElementById("ideologyBadge"),
+  ideoMarker: document.getElementById("ideoMarker"),
   marker: document.getElementById("marker"),
   econScore: document.getElementById("econScore"),
   socialScore: document.getElementById("socialScore"),
@@ -585,6 +652,78 @@ function renderCompass(economic, social, confidence) {
   el.quadrantBadge.textContent = quadrantOf(economic, social);
 }
 
+function buildIdeologyGrid() {
+  const NS = "http://www.w3.org/2000/svg";
+  const grid = document.getElementById("ideoGrid");
+  const labels = document.getElementById("ideoLabels");
+  if (!grid || !labels || grid.childElementCount) return;
+
+  const cell = IDEO_SIZE / IDEO_CELLS;
+
+  for (let r = 0; r < IDEO_CELLS; r++) {
+    for (let c = 0; c < IDEO_CELLS; c++) {
+      const rect = document.createElementNS(NS, "rect");
+      rect.setAttribute("x", String(c * cell));
+      rect.setAttribute("y", String(r * cell));
+      rect.setAttribute("width", String(cell));
+      rect.setAttribute("height", String(cell));
+      rect.setAttribute("fill", IDEOLOGY_GRID[r][c]);
+      rect.setAttribute("class", "ideo-cell");
+      grid.appendChild(rect);
+    }
+  }
+
+  const border = document.createElementNS(NS, "rect");
+  border.setAttribute("x", "0.75");
+  border.setAttribute("y", "0.75");
+  border.setAttribute("width", String(IDEO_SIZE - 1.5));
+  border.setAttribute("height", String(IDEO_SIZE - 1.5));
+  border.setAttribute("fill", "none");
+  border.setAttribute("stroke", "#000");
+  border.setAttribute("stroke-width", "1.5");
+  grid.appendChild(border);
+
+  for (const label of IDEOLOGY_LABELS) {
+    const text = document.createElementNS(NS, "text");
+    const cx = label.x * cell;
+    const cy = label.y * cell;
+    text.setAttribute("x", String(cx));
+    text.setAttribute("y", String(cy));
+    if (label.rot) {
+      text.setAttribute("transform", "rotate(-90 " + cx + " " + cy + ")");
+      text.setAttribute("font-size", "12");
+    }
+
+    const lines = label.t.split("\n");
+    const lineHeight = label.rot ? 14 : 15;
+    lines.forEach((line, i) => {
+      const tspan = document.createElementNS(NS, "tspan");
+      tspan.setAttribute("x", String(cx));
+      tspan.setAttribute("dy", i === 0 ? String(-((lines.length - 1) * lineHeight) / 2) : String(lineHeight));
+      tspan.textContent = line;
+      text.appendChild(tspan);
+    });
+    labels.appendChild(text);
+  }
+}
+
+function ideologyAt(economic, social) {
+  const e = clamp(economic, -1, 1);
+  const s = clamp(social, -1, 1);
+  const col = clamp(Math.floor(((e + 1) / 2) * IDEO_CELLS), 0, IDEO_CELLS - 1);
+  const row = clamp(Math.floor(((1 - s) / 2) * IDEO_CELLS), 0, IDEO_CELLS - 1);
+  return { col, row, name: IDEOLOGY_NAMES[row][col] };
+}
+
+function renderIdeology(economic, social) {
+  const x = ((clamp(economic, -1, 1) + 1) / 2) * IDEO_SIZE;
+  const y = ((1 - clamp(social, -1, 1)) / 2) * IDEO_SIZE;
+  el.ideoMarker.setAttribute("transform", "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ")");
+  const cell = ideologyAt(economic, social);
+  el.ideologyBadge.textContent = cell.name;
+  return cell;
+}
+
 function renderReading(result, posts, handle) {
   el.summary.textContent = result.summary || "No summary returned.";
 
@@ -696,6 +835,7 @@ async function run() {
 
     renderProfile(user, handle, posts.length);
     renderCompass(economic, social, confidence);
+    const cell = renderIdeology(economic, social);
     renderReading(raw, posts, user.screen_name || handle);
     el.results.hidden = false;
     el.results.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -704,7 +844,10 @@ async function run() {
       posts.length < count
         ? "Only " + posts.length + " posts were available (asked for " + count + ")."
         : "Analysed " + posts.length + " posts" + (batches > 1 ? " in " + batches + " batches" : "") + ".";
-    setStatus(note + " Placed in " + quadrantOf(economic, social) + ".", "ok");
+    setStatus(
+      note + " Placed in " + quadrantOf(economic, social) + " · " + cell.name + ".",
+      "ok"
+    );
   } catch (err) {
     setStatus(err?.message || "Something went wrong.", "err");
   } finally {
@@ -797,3 +940,4 @@ el.rememberKey.addEventListener("change", () => {
 });
 
 restoreSettings();
+buildIdeologyGrid();

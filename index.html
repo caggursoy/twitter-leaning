@@ -178,38 +178,72 @@
             </g>
           </svg>
 
-          <div class="score-strip">
-            <div class="score">
-              <span class="score-label">Economic</span>
-              <span class="score-value" id="econScore">—</span>
-              <span class="score-bar"><span class="score-fill" id="econFill"></span></span>
-            </div>
-            <div class="score">
-              <span class="score-label">Social</span>
-              <span class="score-value" id="socialScore">—</span>
-              <span class="score-bar"><span class="score-fill" id="socialFill"></span></span>
-            </div>
-            <div class="score">
-              <span class="score-label">Confidence</span>
-              <span class="score-value" id="confidenceScore">—</span>
-              <span class="score-bar"><span class="score-fill" id="confidenceFill"></span></span>
-            </div>
+        </div>
+
+        <div class="panel ideology-panel">
+          <div class="compass-head">
+            <h3 class="panel-title">Ideology map</h3>
+            <span id="ideologyBadge" class="quadrant-badge">—</span>
+          </div>
+
+          <svg id="ideology" class="ideology" viewBox="0 0 600 600" role="img"
+               aria-labelledby="ideo-title ideo-desc">
+            <title id="ideo-title">Ideology map placement</title>
+            <desc id="ideo-desc">A twelve by twelve grid of political ideologies, from communism at the top left to anarcho-capitalism at the bottom right, with the account placed on it.</desc>
+            <defs>
+              <linearGradient id="ideoMarkerFill" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#ffffff" />
+                <stop offset="100%" stop-color="#dfe4ec" />
+              </linearGradient>
+              <filter id="ideoMarkerShadow" x="-120%" y="-120%" width="340%" height="340%">
+                <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#000" flood-opacity="0.55" />
+              </filter>
+            </defs>
+            <g id="ideoGrid"></g>
+            <g id="ideoLabels" class="ideo-labels"></g>
+            <g id="ideoMarker" class="marker" transform="translate(300 300)">
+              <circle class="marker-halo" r="22" />
+              <circle class="marker-ring" r="13" />
+              <circle class="marker-core" r="8" />
+            </g>
+          </svg>
+
+          <p class="ideo-note">Same two axes, finer regions. The badge names the cell the account lands in.</p>
+        </div>
+      </div>
+
+      <div class="panel scores-panel">
+        <div class="score-strip">
+          <div class="score">
+            <span class="score-label">Economic</span>
+            <span class="score-value" id="econScore">—</span>
+            <span class="score-bar"><span class="score-fill" id="econFill"></span></span>
+          </div>
+          <div class="score">
+            <span class="score-label">Social</span>
+            <span class="score-value" id="socialScore">—</span>
+            <span class="score-bar"><span class="score-fill" id="socialFill"></span></span>
+          </div>
+          <div class="score">
+            <span class="score-label">Confidence</span>
+            <span class="score-value" id="confidenceScore">—</span>
+            <span class="score-bar"><span class="score-fill" id="confidenceFill"></span></span>
           </div>
         </div>
+      </div>
 
-        <div class="panel read-panel">
-          <h3 class="panel-title">Reading</h3>
-          <p id="summary" class="summary">—</p>
+      <div class="panel read-panel">
+        <h3 class="panel-title">Reading</h3>
+        <p id="summary" class="summary">—</p>
 
-          <h4 class="sub-title">Themes</h4>
-          <ul id="themes" class="chips"></ul>
+        <h4 class="sub-title">Themes</h4>
+        <ul id="themes" class="chips"></ul>
 
-          <h4 class="sub-title">Evidence</h4>
-          <ol id="evidence" class="evidence"></ol>
+        <h4 class="sub-title">Evidence</h4>
+        <ol id="evidence" class="evidence"></ol>
 
-          <h4 class="sub-title">Caveats</h4>
-          <p id="caveats" class="caveats">—</p>
-        </div>
+        <h4 class="sub-title">Caveats</h4>
+        <p id="caveats" class="caveats">—</p>
       </div>
 
       <details class="panel method">

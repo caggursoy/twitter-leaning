@@ -18,6 +18,20 @@ and returns two axes in the range −1…+1:
 Those two numbers place the marker in one of four quadrants: Authoritarian Left, Authoritarian Right,
 Libertarian Left, Libertarian Right.
 
+## Two scales
+
+The same two scores are shown on two charts at once:
+
+1. **Placement** — the classic four-quadrant compass, with the quadrant named in the badge.
+2. **Ideology map** — a 12×12 grid of named ideologies, from Communism and National Communism at the top
+   left through Social Democracy, Liberalism and Progressivism in the middle to Syndicalism, Mutualism,
+   Individualism and Anarcho-Capitalism at the bottom. The badge names the cell the account lands in.
+
+Both markers are placed from the same `economic` and `social` values, so they always agree: a point at
+`-0.62 / -0.18` reads Libertarian Left on the compass and Libertarian Socialism on the grid. The grid
+colours and cell regions are sampled from the reference chart and stored in `IDEOLOGY_GRID` and
+`IDEOLOGY_NAMES` in `app.js`.
+
 ## Run locally
 
 ```bash

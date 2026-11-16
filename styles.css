@@ -486,6 +486,44 @@ select {
   border-top: 1px solid var(--line-soft);
 }
 
+.scores-panel .score-strip {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.ideology {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ideo-cell { shape-rendering: crispEdges; }
+
+.ideo-labels text {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.72);
+  stroke-width: 3px;
+  paint-order: stroke;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.ideo-note {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 .score { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 
 .score-label {
