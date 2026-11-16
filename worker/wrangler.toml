@@ -7,7 +7,7 @@ compatibility_date = "2026-11-01"
 
 [[kv_namespaces]]
 binding = "RATE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "ae8ac9035c074e7295a8fe1822b74329"
 
 [vars]
-ALLOWED_ORIGINS = "https://YOURNAME.github.io"
+ALLOWED_ORIGINS = "https://caggursoy.github.io"
