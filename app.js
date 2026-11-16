@@ -4,10 +4,15 @@
 
 const FX_API = "https://api.fxtwitter.com";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const MODELS_URL = "https://api.groq.com/openai/v1/models";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 26;
-const PROMPT_CHAR_BUDGET = 16000;
+const TPM_LIMIT = 8000;
+const INPUT_TOKEN_BUDGET = 5200;
+const OUTPUT_TOKENS = 800;
 const TWEET_CHAR_LIMIT = 420;
+const CHARS_PER_TOKEN = 4;
+const FALLBACK_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
 const STORE = {
   key: "pc.groqKey",
   handle: "pc.handle",
@@ -21,6 +26,8 @@ const el = {
   handle: document.getElementById("handle"),
   count: document.getElementById("count"),
   model: document.getElementById("model"),
+  loadModels: document.getElementById("loadModels"),
+  modelHint: document.getElementById("modelHint"),
   apiKey: document.getElementById("apiKey"),
   withReplies: document.getElementById("withReplies"),
   rememberKey: document.getElementById("rememberKey"),
@@ -234,47 +241,109 @@ function postText(post) {
   return raw.replace(/\s+/g, " ").trim();
 }
 
-function buildPrompt(handle, posts) {
+function postLine(post, index) {
+  let text = postText(post);
+  if (text.length > TWEET_CHAR_LIMIT) text = text.slice(0, TWEET_CHAR_LIMIT) + "…";
+  const kind = post.reposted_by
+    ? " [repost of @" + (post.author?.screen_name || "unknown") + "]"
+    : post.replying_to
+    ? " [reply]"
+    : "";
+  return "[" + (index + 1) + "] id=" + post.id + " " + fmtDate(post.created_timestamp) + kind + "\n" + text + "\n";
+}
+
+function chunkPosts(posts, charBudget) {
+  const chunks = [];
+  let current = [];
+  let used = 0;
+  posts.forEach((post, i) => {
+    const entry = { post, line: postLine(post, i) };
+    if (current.length && used + entry.line.length > charBudget) {
+      chunks.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(entry);
+    used += entry.line.length;
+  });
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+const AXIS_RULES =
+  "economic: -1 = far left (redistribution, state ownership, strong regulation) .. +1 = far right (free markets, low taxes, privatisation). " +
+  "social: -1 = libertarian (civil liberties, permissive, anti-surveillance) .. +1 = authoritarian (order, tradition, surveillance, restrictions).";
+
+const PARTIAL_INSTRUCTION =
+  "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
+  "This is one batch of a longer timeline. Return one JSON object with exactly these keys:\n" +
+  '{\n' +
+  '  "economic": number,   // ' + AXIS_RULES + '\n' +
+  '  "social": number,     // see above\n' +
+  '  "confidence": number, // 0..1 for this batch alone\n' +
+  '  "themes": string[],   // 2-5 short labels seen in this batch\n' +
+  '  "evidence": [{"tweet_id": string, "quote": string, "why": string}], // 1-2 items, quote verbatim\n' +
+  '  "note": string        // one sentence on what this batch shows\n' +
+  '}\n' +
+  "Rules: use only the posts above; reposts and replies count as signal; if this batch is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed.";
+
+const FINAL_INSTRUCTION =
+  "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
+  "Return one JSON object with exactly these keys:\n" +
+  '{\n' +
+  '  "economic": number,   // ' + AXIS_RULES + '\n' +
+  '  "social": number,     // see above\n' +
+  '  "confidence": number, // 0..1, how well the posts support the placement\n' +
+  '  "summary": string,    // 2-4 sentences on the alignment and what drives it\n' +
+  '  "themes": string[],   // 3-6 short labels, e.g. "free markets", "immigration"\n' +
+  '  "evidence": [{"tweet_id": string, "quote": string, "why": string}], // 3-6 items, quote verbatim from the posts above\n' +
+  '  "caveats": string     // one or two sentences on what this reading cannot capture\n' +
+  '}\n' +
+  "Rules: use only the posts above; reposts and replies count as signal; if the account is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed.";
+
+function buildPrompt(handle, entries, meta) {
   const header =
     "Account: @" + handle + "\n" +
-    "Posts supplied: " + posts.length + "\n" +
-    "Window: " + fmtDate(posts[posts.length - 1]?.created_timestamp) +
-    " to " + fmtDate(posts[0]?.created_timestamp) + "\n\nPOSTS\n";
+    (meta.total > 1
+      ? "Batch " + meta.index + " of " + meta.total + " — " + entries.length + " of " + meta.totalPosts + " posts\n"
+      : "Posts supplied: " + entries.length + "\n") +
+    "Window: " + meta.window + "\n\nPOSTS\n";
+  return header + entries.map((e) => e.line).join("") + (meta.total > 1 ? PARTIAL_INSTRUCTION : FINAL_INSTRUCTION);
+}
 
-  const lines = [];
-  let used = header.length;
+function buildSynthesisPrompt(handle, partials, totalPosts, window) {
+  const blocks = partials.map((p, i) => {
+    const themes = (p.themes || []).join(", ");
+    const quotes = (p.evidence || [])
+      .map((e) => "  - id=" + e.tweet_id + " \"" + String(e.quote || "").slice(0, 160) + "\"")
+      .join("\n");
+    return (
+      "Batch " + (i + 1) + ": economic=" + p.economic + " social=" + p.social +
+      " confidence=" + p.confidence + "\n" +
+      "  themes: " + themes + "\n" +
+      (p.note ? "  note: " + p.note + "\n" : "") +
+      (quotes ? "  quotes:\n" + quotes + "\n" : "")
+    );
+  });
 
-  for (let i = 0; i < posts.length; i++) {
-    const post = posts[i];
-    let text = postText(post);
-    if (text.length > TWEET_CHAR_LIMIT) text = text.slice(0, TWEET_CHAR_LIMIT) + "…";
-    const kind = post.reposted_by
-      ? " [repost of @" + (post.author?.screen_name || "unknown") + "]"
-      : post.replying_to
-      ? " [reply]"
-      : "";
-    const line =
-      "[" + (i + 1) + "] id=" + post.id + " " + fmtDate(post.created_timestamp) + kind + "\n" + text + "\n";
-    if (used + line.length > PROMPT_CHAR_BUDGET) break;
-    lines.push(line);
-    used += line.length;
-  }
-
-  const instruction =
+  return (
+    "Account: @" + handle + "\n" +
+    "The timeline was read in " + partials.length + " batches covering " + totalPosts + " posts (" + window + ").\n" +
+    "Each batch was already scored on the same two axes. Merge them into one placement for the whole account.\n\n" +
+    "BATCH RESULTS\n" + blocks.join("\n") +
     "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
     "Return one JSON object with exactly these keys:\n" +
     '{\n' +
-    '  "economic": number,   // -1 = far left (redistribution, state ownership, strong regulation) .. +1 = far right (free markets, low taxes, privatisation)\n' +
-    '  "social": number,     // -1 = libertarian (civil liberties, permissive, anti-surveillance) .. +1 = authoritarian (order, tradition, surveillance, restrictions)\n' +
-    '  "confidence": number, // 0..1, how well the posts support the placement\n' +
+    '  "economic": number,   // ' + AXIS_RULES + '\n' +
+    '  "social": number,     // see above\n' +
+    '  "confidence": number, // 0..1 for the merged placement\n' +
     '  "summary": string,    // 2-4 sentences on the alignment and what drives it\n' +
-    '  "themes": string[],   // 3-6 short labels, e.g. "free markets", "immigration"\n' +
-    '  "evidence": [{"tweet_id": string, "quote": string, "why": string}], // 3-6 items, quote verbatim from the posts above\n' +
+    '  "themes": string[],   // 3-6 short labels\n' +
+    '  "evidence": [{"tweet_id": string, "quote": string, "why": string}], // 3-6 items, reuse ids and quotes from the batches\n' +
     '  "caveats": string     // one or two sentences on what this reading cannot capture\n' +
     '}\n' +
-    "Rules: use only the posts above; reposts and replies count as signal; if the account is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed.";
-
-  return header + lines.join("") + instruction;
+    "Rules: weight batches by their confidence; never invent quotes or ids; if the batches disagree, say so in caveats and lower confidence."
+  );
 }
 
 function parseModelJson(raw) {
@@ -286,7 +355,29 @@ function parseModelJson(raw) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-async function callGroq({ apiKey, model, prompt }) {
+const rate = { windowStart: 0, used: 0 };
+
+function estimateTokens(text) {
+  return Math.ceil(String(text || "").length / CHARS_PER_TOKEN);
+}
+
+async function pace(tokensNeeded) {
+  const now = Date.now();
+  if (!rate.windowStart || now - rate.windowStart > 60000) {
+    rate.windowStart = now;
+    rate.used = 0;
+  }
+  if (rate.used + tokensNeeded > TPM_LIMIT) {
+    await sleep(60000 - (now - rate.windowStart) + 400);
+    rate.windowStart = Date.now();
+    rate.used = 0;
+  }
+  rate.used += tokensNeeded;
+}
+
+async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retries = 1 }) {
+  await pace(estimateTokens(prompt) + maxTokens);
+
   const res = await fetch(GROQ_URL, {
     method: "POST",
     headers: {
@@ -296,7 +387,7 @@ async function callGroq({ apiKey, model, prompt }) {
     body: JSON.stringify({
       model,
       temperature: 0.2,
-      max_tokens: 1400,
+      max_tokens: maxTokens,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -311,12 +402,22 @@ async function callGroq({ apiKey, model, prompt }) {
 
   const body = await res.json().catch(() => null);
 
+  if (res.status === 429 && retries > 0) {
+    const retryAfter = parseFloat(res.headers.get("retry-after") || "0");
+    await sleep(Math.max(1500, (isFinite(retryAfter) ? retryAfter : 0) * 1000));
+    rate.windowStart = 0;
+    rate.used = 0;
+    return callGroq({ apiKey, model, prompt, maxTokens, retries: retries - 1 });
+  }
+
   if (!res.ok) {
     const message = body?.error?.message || "Groq returned " + res.status;
     if (res.status === 401) throw new Error("Groq rejected the API key (401). Check the key and try again.");
-    if (res.status === 429) throw new Error("Groq rate limit hit (429). Wait a moment, or lower the post count.");
-    if (res.status === 400 && /model/i.test(message)) {
-      throw new Error("Groq rejected the model: " + message);
+    if (res.status === 429) {
+      throw new Error("Groq rate limit hit (429) even after waiting. Try again in a minute, or lower the post count.");
+    }
+    if (res.status === 404 || /does not exist|do not have access/i.test(message)) {
+      throw new Error("This key cannot use " + model + ". Press “Load models” to pick one it can use.");
     }
     throw new Error("Groq error: " + message);
   }
@@ -324,6 +425,73 @@ async function callGroq({ apiKey, model, prompt }) {
   const content = body?.choices?.[0]?.message?.content;
   if (!content) throw new Error("Groq returned an empty completion");
   return parseModelJson(content);
+}
+
+async function analysePosts({ apiKey, model, handle, posts, onProgress }) {
+  const window =
+    fmtDate(posts[posts.length - 1]?.created_timestamp) + " to " + fmtDate(posts[0]?.created_timestamp);
+  const chunks = chunkPosts(posts, INPUT_TOKEN_BUDGET * CHARS_PER_TOKEN);
+
+  if (chunks.length <= 1) {
+    onProgress?.("Asking " + model + " to place the account…");
+    const prompt = buildPrompt(handle, chunks[0] || [], {
+      index: 1,
+      total: 1,
+      totalPosts: posts.length,
+      window,
+    });
+    return { result: await callGroq({ apiKey, model, prompt }), batches: 1 };
+  }
+
+  const partials = [];
+  for (let i = 0; i < chunks.length; i++) {
+    onProgress?.("Analysing batch " + (i + 1) + " of " + chunks.length + "…");
+    const prompt = buildPrompt(handle, chunks[i], {
+      index: i + 1,
+      total: chunks.length,
+      totalPosts: posts.length,
+      window,
+    });
+    partials.push(await callGroq({ apiKey, model, prompt, maxTokens: 600 }));
+  }
+
+  onProgress?.("Merging " + chunks.length + " batches…");
+  const synth = buildSynthesisPrompt(handle, partials, posts.length, window);
+  return { result: await callGroq({ apiKey, model, prompt: synth }), batches: chunks.length };
+}
+
+function isChatModel(id) {
+  return !/whisper|guard|tts|embed|moderation|safeguard/i.test(id);
+}
+
+async function loadModels(apiKey) {
+  const res = await fetch(MODELS_URL, {
+    headers: { Authorization: "Bearer " + apiKey },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(
+      res.status === 401
+        ? "Groq rejected the API key (401)."
+        : "Could not list models (" + res.status + ")."
+    );
+  }
+  const body = await res.json();
+  return (body.data || []).map((m) => m.id).filter(isChatModel).sort();
+}
+
+function populateModels(ids, preferred) {
+  const list = ids.length ? ids : FALLBACK_MODELS;
+  const keep = preferred || el.model.value;
+  el.model.innerHTML = "";
+  for (const id of list) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = id;
+    el.model.appendChild(option);
+  }
+  el.model.value = list.includes(keep) ? keep : list[0];
+  return el.model.value;
 }
 
 /* ---------------- rendering ---------------- */
@@ -462,8 +630,13 @@ async function run() {
     if (!posts.length) throw new Error("No public posts returned for @" + handle);
 
     setStatus("Asking " + model + " to place the account…", "busy");
-    const prompt = buildPrompt(user.screen_name || handle, posts);
-    const raw = await callGroq({ apiKey, model, prompt });
+    const { result: raw, batches } = await analysePosts({
+      apiKey,
+      model,
+      handle: user.screen_name || handle,
+      posts,
+      onProgress: (msg) => setStatus(msg, "busy"),
+    });
 
     const economic = clamp(Number(raw.economic), -1, 1);
     const social = clamp(Number(raw.social), -1, 1);
@@ -481,7 +654,7 @@ async function run() {
     const note =
       posts.length < count
         ? "Only " + posts.length + " posts were available (asked for " + count + ")."
-        : "Analysed " + posts.length + " posts.";
+        : "Analysed " + posts.length + " posts" + (batches > 1 ? " in " + batches + " batches" : "") + ".";
     setStatus(note + " Placed in " + quadrantOf(economic, social) + ".", "ok");
   } catch (err) {
     setStatus(err?.message || "Something went wrong.", "err");
@@ -527,6 +700,29 @@ function restoreSettings() {
 /* ---------------- wiring ---------------- */
 
 el.run.addEventListener("click", run);
+
+el.loadModels.addEventListener("click", async () => {
+  const apiKey = el.apiKey.value.trim();
+  if (!apiKey) {
+    setStatus("Enter your Groq API key first, then load the models it can use.", "err");
+    el.apiKey.focus();
+    return;
+  }
+  el.loadModels.disabled = true;
+  el.modelHint.textContent = "Loading…";
+  try {
+    const ids = await loadModels(apiKey);
+    const chosen = populateModels(ids, el.model.value);
+    el.modelHint.textContent = ids.length + " chat models available.";
+    setStatus("Loaded " + ids.length + " models. Using " + chosen + ".", "ok");
+    persistSettings();
+  } catch (err) {
+    el.modelHint.textContent = "Could not load models.";
+    setStatus(err?.message || "Could not load models.", "err");
+  } finally {
+    el.loadModels.disabled = false;
+  }
+});
 
 el.reset.addEventListener("click", () => {
   el.results.hidden = true;

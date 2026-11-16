@@ -55,11 +55,14 @@
         <label class="field">
           <span class="field-label">Model</span>
           <select id="model">
-            <option value="llama-3.1-8b-instant" selected>llama-3.1-8b-instant</option>
-            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
-            <option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option>
+            <option value="openai/gpt-oss-20b" selected>openai/gpt-oss-20b</option>
+            <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
+            <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b</option>
           </select>
-          <span class="field-hint">8B Instant is the free-tier default.</span>
+          <span class="field-hint">
+            <button id="loadModels" class="link-btn" type="button">Load models for this key</button>
+            <span id="modelHint">Free tier: 8k tokens/min.</span>
+          </span>
         </label>
 
         <label class="field field-key">
