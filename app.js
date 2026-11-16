@@ -1,6 +1,21 @@
 /* Political Compass — static client for GitHub Pages.
- * Data: FxTwitter read API (CORS-enabled, no key). Model: Groq chat completions.
+ * Data: FxTwitter read API (CORS-enabled, no key). Model: Groq chat completions,
+ * either directly with a user-supplied key or through the rate-limiting proxy.
  */
+
+import {
+  CHARS_PER_TOKEN,
+  INPUT_TOKEN_BUDGET,
+  OUTPUT_TOKENS,
+  PARTIAL_TOKENS,
+  buildPrompt,
+  buildSynthesisPrompt,
+  chunkPosts,
+  estimateTokens,
+  isReasoningModel,
+  parseModelJson,
+  windowLabel,
+} from "./shared/prompts.js";
 
 const FX_API = "https://api.fxtwitter.com";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -8,12 +23,11 @@ const MODELS_URL = "https://api.groq.com/openai/v1/models";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 26;
 const TPM_LIMIT = 8000;
-const INPUT_TOKEN_BUDGET = 5000;
-const OUTPUT_TOKENS = 2000;
-const PARTIAL_TOKENS = 1400;
-const TWEET_CHAR_LIMIT = 420;
-const CHARS_PER_TOKEN = 4;
 const FALLBACK_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
+
+/* Set to the deployed worker URL to run without a user-supplied key.
+ * ?proxy=https://... overrides it for testing. */
+const PROXY_URL = new URLSearchParams(location.search).get("proxy") || "";
 
 const IDEO_SIZE = 600;
 const IDEO_CELLS = 12;
@@ -138,15 +152,6 @@ function fmtNum(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
   return String(n);
-}
-
-function fmtDate(unixSeconds) {
-  if (!unixSeconds) return "";
-  return new Date(unixSeconds * 1000).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 function setStatus(text, tone = "idle") {
@@ -304,136 +309,10 @@ async function fetchTimeline(userId, target, { withReplies, onProgress }) {
 
 /* ---------------- prompt + model ---------------- */
 
-function postText(post) {
-  const raw = post.text || "";
-  return raw.replace(/\s+/g, " ").trim();
-}
-
-function postLine(post, index) {
-  let text = postText(post);
-  if (text.length > TWEET_CHAR_LIMIT) text = text.slice(0, TWEET_CHAR_LIMIT) + "…";
-  const kind = post.reposted_by
-    ? " [repost of @" + (post.author?.screen_name || "unknown") + "]"
-    : post.replying_to
-    ? " [reply]"
-    : "";
-  return "[" + (index + 1) + "] id=" + post.id + " " + fmtDate(post.created_timestamp) + kind + "\n" + text + "\n";
-}
-
-function chunkPosts(posts, charBudget) {
-  const chunks = [];
-  let current = [];
-  let used = 0;
-  posts.forEach((post, i) => {
-    const entry = { post, line: postLine(post, i) };
-    if (current.length && used + entry.line.length > charBudget) {
-      chunks.push(current);
-      current = [];
-      used = 0;
-    }
-    current.push(entry);
-    used += entry.line.length;
-  });
-  if (current.length) chunks.push(current);
-  return chunks;
-}
-
-const FIELD_ECON =
-  "- economic: number from -1 to 1. -1 means far left (redistribution, state ownership, strong regulation); +1 means far right (free markets, low taxes, privatisation).";
-const FIELD_SOCIAL =
-  "- social: number from -1 to 1. -1 means libertarian (civil liberties, permissive, anti-surveillance); +1 means authoritarian (order, tradition, surveillance, restrictions).";
-const JSON_ONLY_RULE =
-  "Output only the JSON object. No comments, no markdown fences, no text before or after it.";
-
-const PARTIAL_INSTRUCTION =
-  "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
-  "This is one batch of a longer timeline. Return one JSON object with exactly these keys:\n" +
-  '{"economic": 0.0, "social": 0.0, "confidence": 0.0, "themes": [], "evidence": [{"tweet_id": "", "quote": "", "why": ""}], "note": ""}\n' +
-  "Field meanings:\n" +
-  FIELD_ECON + "\n" +
-  FIELD_SOCIAL + "\n" +
-  "- confidence: number from 0 to 1 for this batch alone.\n" +
-  "- themes: 2 to 5 short labels seen in this batch.\n" +
-  "- evidence: 1 or 2 items, each quoting a post verbatim and naming the tweet_id it came from.\n" +
-  "- note: one sentence on what this batch shows.\n" +
-  "Rules: use only the posts above; reposts and replies count as signal; if this batch is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed. " +
-  JSON_ONLY_RULE;
-
-const FINAL_INSTRUCTION =
-  "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
-  "Return one JSON object with exactly these keys:\n" +
-  '{"economic": 0.0, "social": 0.0, "confidence": 0.0, "summary": "", "themes": [], "evidence": [{"tweet_id": "", "quote": "", "why": ""}], "caveats": ""}\n' +
-  "Field meanings:\n" +
-  FIELD_ECON + "\n" +
-  FIELD_SOCIAL + "\n" +
-  "- confidence: number from 0 to 1, how well the posts support the placement.\n" +
-  "- summary: 2 to 4 sentences on the alignment and what drives it.\n" +
-  "- themes: 3 to 6 short labels, for example free markets or immigration.\n" +
-  "- evidence: 3 to 6 items, each quoting a post verbatim and naming the tweet_id it came from.\n" +
-  "- caveats: one or two sentences on what this reading cannot capture.\n" +
-  "Rules: use only the posts above; reposts and replies count as signal; if the account is apolitical put both scores near 0 and confidence low; never invent quotes; tweet_id must be one of the ids listed. " +
-  JSON_ONLY_RULE;
-
-function buildPrompt(handle, entries, meta) {
-  const header =
-    "Account: @" + handle + "\n" +
-    (meta.total > 1
-      ? "Batch " + meta.index + " of " + meta.total + " — " + entries.length + " of " + meta.totalPosts + " posts\n"
-      : "Posts supplied: " + entries.length + "\n") +
-    "Window: " + meta.window + "\n\nPOSTS\n";
-  return header + entries.map((e) => e.line).join("") + (meta.total > 1 ? PARTIAL_INSTRUCTION : FINAL_INSTRUCTION);
-}
-
-function buildSynthesisPrompt(handle, partials, totalPosts, window) {
-  const blocks = partials.map((p, i) => {
-    const themes = (p.themes || []).join(", ");
-    const quotes = (p.evidence || [])
-      .map((e) => "  - id=" + e.tweet_id + " \"" + String(e.quote || "").slice(0, 160) + "\"")
-      .join("\n");
-    return (
-      "Batch " + (i + 1) + ": economic=" + p.economic + " social=" + p.social +
-      " confidence=" + p.confidence + "\n" +
-      "  themes: " + themes + "\n" +
-      (p.note ? "  note: " + p.note + "\n" : "") +
-      (quotes ? "  quotes:\n" + quotes + "\n" : "")
-    );
-  });
-
-  return (
-    "Account: @" + handle + "\n" +
-    "The timeline was read in " + partials.length + " batches covering " + totalPosts + " posts (" + window + ").\n" +
-    "Each batch was already scored on the same two axes. Merge them into one placement for the whole account.\n\n" +
-    "BATCH RESULTS\n" + blocks.join("\n") +
-    "\nTask: read the tweets from this user, provide the political alignment of this user.\n\n" +
-    "Return one JSON object with exactly these keys:\n" +
-    '{"economic": 0.0, "social": 0.0, "confidence": 0.0, "summary": "", "themes": [], "evidence": [{"tweet_id": "", "quote": "", "why": ""}], "caveats": ""}\n' +
-    "Field meanings:\n" +
-    FIELD_ECON + "\n" +
-    FIELD_SOCIAL + "\n" +
-    "- confidence: number from 0 to 1 for the merged placement.\n" +
-    "- summary: 2 to 4 sentences on the alignment and what drives it.\n" +
-    "- themes: 3 to 6 short labels.\n" +
-    "- evidence: 3 to 6 items, reusing ids and quotes from the batches above.\n" +
-    "- caveats: one or two sentences on what this reading cannot capture.\n" +
-    "Rules: weight batches by their confidence; never invent quotes or ids; if the batches disagree, say so in caveats and lower confidence. " +
-    JSON_ONLY_RULE
-  );
-}
-
-function parseModelJson(raw) {
-  let text = String(raw || "").trim();
-  text = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) throw new Error("Model did not return JSON");
-  return JSON.parse(text.slice(start, end + 1));
-}
+/* postText, postLine, chunkPosts, buildPrompt, buildSynthesisPrompt and
+ * parseModelJson live in shared/prompts.js so the proxy builds identical prompts. */
 
 const rate = { windowStart: 0, used: 0 };
-
-function estimateTokens(text) {
-  return Math.ceil(String(text || "").length / CHARS_PER_TOKEN);
-}
 
 async function pace(tokensNeeded) {
   const now = Date.now();
@@ -447,10 +326,6 @@ async function pace(tokensNeeded) {
     rate.used = 0;
   }
   rate.used += tokensNeeded;
-}
-
-function isReasoningModel(model) {
-  return /gpt-oss|qwen3|deepseek|reason/i.test(model);
 }
 
 async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retries = 1, jsonMode = true }) {
@@ -544,8 +419,7 @@ async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retr
 }
 
 async function analysePosts({ apiKey, model, handle, posts, onProgress }) {
-  const window =
-    fmtDate(posts[posts.length - 1]?.created_timestamp) + " to " + fmtDate(posts[0]?.created_timestamp);
+  const window = windowLabel(posts);
   const chunks = chunkPosts(posts, INPUT_TOKEN_BUDGET * CHARS_PER_TOKEN);
 
   if (chunks.length <= 1) {
@@ -574,6 +448,42 @@ async function analysePosts({ apiKey, model, handle, posts, onProgress }) {
   onProgress?.("Merging " + chunks.length + " batches…");
   const synth = buildSynthesisPrompt(handle, partials, posts.length, window);
   return { result: await callGroq({ apiKey, model, prompt: synth }), batches: chunks.length };
+}
+
+async function analyseViaProxy({ model, handle, posts, onProgress }) {
+  onProgress?.("Sending " + posts.length + " posts to the proxy…");
+  const res = await fetch(PROXY_URL.replace(/\/$/, "") + "/analyse", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      handle,
+      model,
+      window: windowLabel(posts),
+      posts: posts.map((p) => ({
+        id: p.id,
+        text: p.text,
+        created_timestamp: p.created_timestamp,
+        replying_to: p.replying_to || null,
+        author: p.author ? { screen_name: p.author.screen_name } : null,
+        reposted_by: p.reposted_by ? { screen_name: p.reposted_by.screen_name } : null,
+      })),
+    }),
+  });
+
+  const body = await res.json().catch(() => null);
+
+  if (res.status === 429) {
+    const wait = Number(body?.retry_after) || 0;
+    const mins = Math.ceil(wait / 60);
+    throw new Error(
+      "Rate limited. One analysis per 10 minutes — try again in " + (mins > 0 ? mins + " min" : wait + "s") + "."
+    );
+  }
+  if (!res.ok) {
+    throw new Error(body?.error || "Proxy returned " + res.status);
+  }
+  if (!body || !body.result) throw new Error("Proxy returned no result");
+  return { result: body.result, batches: body.batches || 1 };
 }
 
 function isChatModel(id) {
@@ -793,7 +703,7 @@ async function run() {
     el.handle.focus();
     return;
   }
-  if (!apiKey) {
+  if (!PROXY_URL && !apiKey) {
     setStatus("Enter your Groq API key. It is free at console.groq.com/keys.", "err");
     el.apiKey.focus();
     return;
@@ -818,13 +728,20 @@ async function run() {
     if (!posts.length) throw new Error("No public posts returned for @" + handle);
 
     setStatus("Asking " + model + " to place the account…", "busy");
-    const { result: raw, batches } = await analysePosts({
-      apiKey,
-      model,
-      handle: user.screen_name || handle,
-      posts,
-      onProgress: (msg) => setStatus(msg, "busy"),
-    });
+    const { result: raw, batches } = PROXY_URL
+      ? await analyseViaProxy({
+          model,
+          handle: user.screen_name || handle,
+          posts,
+          onProgress: (msg) => setStatus(msg, "busy"),
+        })
+      : await analysePosts({
+          apiKey,
+          model,
+          handle: user.screen_name || handle,
+          posts,
+          onProgress: (msg) => setStatus(msg, "busy"),
+        });
 
     const economic = clamp(Number(raw.economic), -1, 1);
     const social = clamp(Number(raw.social), -1, 1);
@@ -941,3 +858,9 @@ el.rememberKey.addEventListener("change", () => {
 
 restoreSettings();
 buildIdeologyGrid();
+
+if (PROXY_URL) {
+  const keyField = el.apiKey.closest(".field");
+  if (keyField) keyField.hidden = true;
+  el.modelHint.textContent = "Shared key via proxy · 1 analysis per 10 min.";
+}

@@ -45,6 +45,35 @@ to `main`, to `https://<you>.github.io/twitter-leaning/`.
 **Load models for this key** rebuilds the dropdown from `GET /openai/v1/models`, so it stays correct
 when Groq changes its catalog. Free-tier limits are 30 RPM, 1,000 RPD, 8,000 TPM, 200,000 TPD.
 
+## Shared key (proxy)
+
+GitHub repo variables cannot hold this key. Pages serves static files, so anything the browser reads is
+public, and Actions cannot answer HTTP requests. The key has to live in a small proxy.
+
+`worker/` is a Cloudflare Worker that does exactly that:
+
+- Holds the key as a Worker secret (`wrangler secret put GROQ_API_KEY`), never in the repo.
+- Allows **one analysis per IP per 10 minutes**. One analysis is one HTTP request even when the timeline
+  needs several Groq calls.
+- Rejects origins not in `ALLOWED_ORIGINS` with 403 before doing any work, so a foreign page cannot
+  spend your quota.
+- Does not consume the quota when the analysis fails.
+
+Deploy:
+
+```bash
+cd worker
+npx wrangler kv namespace create RATE     # put the id in wrangler.toml
+npx wrangler secret put GROQ_API_KEY
+npx wrangler deploy
+```
+
+Then set `PROXY_URL` in `app.js` to the deployed URL. The API key field disappears and the app posts to
+the proxy instead. `?proxy=https://...` overrides it for testing.
+
+`node worker/test/harness.mjs` runs the worker in Node against a stubbed Groq and a fake KV: 22 checks
+covering CORS, the rate limit, batching, quota accounting and the error paths.
+
 ## Limits
 
 - A 500-post timeline is ~20,000 tokens, more than the 8,000 TPM free tier allows in one request. The
@@ -60,6 +89,10 @@ when Groq changes its catalog. Free-tier limits are 30 RPM, 1,000 RPD, 8,000 TPM
 ```
 index.html                     markup and both chart SVGs
 styles.css                     styling
-app.js                         fetching, prompt, Groq call, rendering
+app.js                         fetching, rendering, direct Groq calls
+shared/prompts.js              prompt and batching, shared by app and worker
+worker/src/index.js            rate-limiting proxy
+worker/wrangler.toml           worker config
+worker/test/harness.mjs        worker tests
 .github/workflows/pages.yml    Pages deployment
 ```
