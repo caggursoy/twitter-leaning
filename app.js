@@ -74,15 +74,15 @@ const IDEOLOGY_LABELS = [
   { t: "Fundamentalism", x: 11.44, y: 1.5, rot: true },
   { t: "Traditio-\nnalism", x: 9.5, y: 1.6 },
   { t: "Statism", x: 3.5, y: 2.9 },
-  { t: "Authorit-\narianism", x: 5.5, y: 2.85 },
-  { t: "Conser-\nvatism", x: 7.5, y: 2.85 },
+  { t: "Authorit-\narianism", x: 5.55, y: 2.85 },
+  { t: "Conser-\nvatism", x: 7.45, y: 2.85 },
   { t: "Socialism", x: 1.0, y: 3.5 },
   { t: "Capitalism", x: 10.5, y: 3.5 },
   { t: "Social\nDemocracy", x: 2.5, y: 4.6 },
   { t: "Liberalism", x: 4.5, y: 4.75 },
   { t: "Progres-\nsivism", x: 7.0, y: 4.75 },
   { t: "Democratic\nSocialism", x: 1.0, y: 5.6 },
-  { t: "Libertarian\nCapitalism", x: 10.5, y: 5.6 },
+  { t: "Libertarian\nCapitalism", x: 10.3, y: 5.6 },
   { t: "Libertarian\nSocialism", x: 2.5, y: 6.6 },
   { t: "Activism", x: 4.5, y: 6.75 },
   { t: "Liberta-\nrianism", x: 7.0, y: 6.6 },
@@ -864,5 +864,10 @@ buildIdeologyGrid();
 if (PROXY_URL) {
   const keyField = el.apiKey.closest(".field");
   if (keyField) keyField.hidden = true;
+  const grid = document.getElementById("fieldGrid");
+  if (grid) grid.classList.add("no-key");
+  const remember = document.getElementById("rememberWrap");
+  if (remember) remember.hidden = true;
+  if (el.loadModels) el.loadModels.hidden = true;
   el.modelHint.textContent = "Shared key via proxy · 1 analysis per 10 min.";
 }

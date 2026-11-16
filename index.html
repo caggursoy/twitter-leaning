@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Political Compass — X/Twitter account analysis</title>
-<meta name="description" content="Read the latest posts from any public X account and map the account's political alignment on a classic four-quadrant compass using a free Groq-hosted Llama model." />
+<meta name="description" content="Read the latest posts from any public X account and map the account's political alignment on a four-quadrant compass and a 12x12 ideology grid." />
 <link rel="stylesheet" href="styles.css" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1117'/%3E%3Cpath d='M16 4v24M4 16h24' stroke='%236b7280' stroke-width='1.5'/%3E%3Ccircle cx='21' cy='11' r='3.5' fill='%23e0574f'/%3E%3C/svg%3E" />
 </head>
@@ -22,11 +22,8 @@
       </span>
       <div>
         <h1>Political Compass</h1>
-        <p class="tagline">Reads the latest posts from a public X account and places it on the classic four-quadrant map.</p>
+        <p class="tagline">Reads the latest posts from a public X account and places it on two political scales.</p>
       </div>
-    </div>
-    <div class="masthead-meta">
-      <span class="pill pill-quiet">Static site · no backend</span>
     </div>
   </header>
 
@@ -34,7 +31,7 @@
     <section class="panel controls" aria-labelledby="controls-title">
       <h2 id="controls-title" class="panel-title">Run an analysis</h2>
 
-      <div class="field-grid">
+      <div class="field-grid" id="fieldGrid">
         <label class="field field-handle">
           <span class="field-label">X account</span>
           <span class="input-wrap">
@@ -80,7 +77,7 @@
           <input id="withReplies" type="checkbox" />
           <span>Include replies</span>
         </label>
-        <label class="check">
+        <label class="check" id="rememberWrap">
           <input id="rememberKey" type="checkbox" checked />
           <span>Remember key on this device</span>
         </label>
@@ -166,8 +163,8 @@
             <g class="axis-labels" aria-hidden="true">
               <text x="40" y="546" class="ax ax-start">Economic left</text>
               <text x="520" y="546" class="ax ax-end">Economic right</text>
-              <text x="280" y="30" class="ax ax-mid">Authoritarian</text>
-              <text x="280" y="540" class="ax ax-mid">Libertarian</text>
+              <text x="18" y="160" class="ax ax-vert" transform="rotate(-90 18 160)">Authoritarian</text>
+              <text x="18" y="400" class="ax ax-vert" transform="rotate(-90 18 400)">Libertarian</text>
             </g>
 
             <g id="marker" class="marker" transform="translate(280 280)">
@@ -265,10 +262,6 @@
       </details>
     </section>
   </main>
-
-  <footer class="footer">
-    <p>Runs entirely in your browser. Your Groq key is never sent anywhere except api.groq.com.</p>
-  </footer>
 </div>
 
 <script type="module" src="app.js"></script>
