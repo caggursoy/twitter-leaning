@@ -115,7 +115,11 @@
         <div class="panel compass-panel">
           <div class="compass-head">
             <h3 class="panel-title">Placement</h3>
-            <span id="quadrantBadge" class="quadrant-badge">—</span>
+            <div class="head-tools">
+              <span id="quadrantBadge" class="quadrant-badge">—</span>
+              <button class="tool-btn" id="copyCompass" type="button" title="Copy a 1080×1350 PNG to the clipboard">Copy</button>
+              <button class="tool-btn" id="saveCompass" type="button" title="Download a 1080×1350 PNG">PNG</button>
+            </div>
           </div>
 
           <svg id="compass" class="compass" viewBox="0 0 560 560" role="img"
@@ -179,7 +183,11 @@
         <div class="panel ideology-panel">
           <div class="compass-head">
             <h3 class="panel-title">Ideology map</h3>
-            <span id="ideologyBadge" class="quadrant-badge">—</span>
+            <div class="head-tools">
+              <span id="ideologyBadge" class="quadrant-badge">—</span>
+              <button class="tool-btn" id="copyIdeology" type="button" title="Copy a 1080×1350 PNG to the clipboard">Copy</button>
+              <button class="tool-btn" id="saveIdeology" type="button" title="Download a 1080×1350 PNG">PNG</button>
+            </div>
           </div>
 
           <svg id="ideology" class="ideology" viewBox="0 0 600 600" role="img"
@@ -230,6 +238,14 @@
 
       <div class="panel read-panel">
         <h3 class="panel-title">Reading</h3>
+
+        <div class="caption-head">
+          <h4 class="sub-title">In short</h4>
+          <button class="tool-btn" id="copyCaption" type="button">Copy text</button>
+        </div>
+        <p id="caption" class="caption-text">—</p>
+
+        <h4 class="sub-title">Detail</h4>
         <p id="summary" class="summary">—</p>
 
         <h4 class="sub-title">Themes</h4>

@@ -135,12 +135,19 @@ const el = {
   socialFill: document.getElementById("socialFill"),
   confidenceFill: document.getElementById("confidenceFill"),
   summary: document.getElementById("summary"),
+  caption: document.getElementById("caption"),
+  copyCaption: document.getElementById("copyCaption"),
+  copyCompass: document.getElementById("copyCompass"),
+  saveCompass: document.getElementById("saveCompass"),
+  copyIdeology: document.getElementById("copyIdeology"),
+  saveIdeology: document.getElementById("saveIdeology"),
   themes: document.getElementById("themes"),
   evidence: document.getElementById("evidence"),
   caveats: document.getElementById("caveats"),
 };
 
 let busy = false;
+let lastResult = null;
 
 /* ---------------- small helpers ---------------- */
 
@@ -636,9 +643,215 @@ function renderIdeology(economic, social) {
   return cell;
 }
 
+/* ---------------- share caption ---------------- */
+
+function axisWord(value, negWord, posWord, midWord) {
+  if (value <= -0.35) return negWord;
+  if (value >= 0.35) return posWord;
+  return midWord;
+}
+
+function buildCaption({ handle, economic, social, confidence, quadrant, ideology, count }) {
+  const econ = axisWord(economic, "a strongly redistributive", "a strongly market-led", "a mixed");
+  const soc = axisWord(social, "libertarian", "authoritarian", "centrist");
+  const pct = Math.round(confidence * 100);
+
+  const first =
+    "@" + handle + " lands in " + quadrant + " on the compass and " + ideology +
+    " on the ideology map, at " + signed(economic) + " economic and " + signed(social) +
+    " social across " + count + " recent posts.";
+
+  const second =
+    "The economic axis reads " + econ + " position and the social axis reads " + soc +
+    ", which is what puts it in that cell rather than a neighbouring one.";
+
+  const third =
+    confidence >= 0.6
+      ? "Confidence is " + pct + "%, so the placement is reasonably well supported by this window."
+      : "Confidence is " + pct + "%, so treat the placement as a weak signal rather than a settled reading.";
+
+  return first + " " + second + " " + third;
+}
+
+function renderCaption(caption) {
+  el.caption.textContent = caption;
+}
+
+/* ---------------- image export ---------------- */
+
+const EXPORT_W = 1080;
+const EXPORT_H = 1350;
+const EXPORT_PAD = 56;
+const EXPORT_HEAD = 170;
+const EXPORT_FOOT = 110;
+
+const EXPORT_CSS = `
+  .q { opacity: 0.5; }
+  .q-al { fill: #7d2f2f; }
+  .q-ar { fill: #2f4a7d; }
+  .q-ll { fill: #2f6b4a; }
+  .q-lr { fill: #6b5a2a; }
+  .grid-lines line { stroke: rgba(255,255,255,0.055); stroke-width: 1; }
+  .axes line { stroke: rgba(255,255,255,0.42); stroke-width: 1.6; }
+  .quadrant-labels .ql {
+    fill: rgba(255,255,255,0.62); font-size: 12.5px; font-weight: 600;
+    letter-spacing: 0.03em; font-family: Helvetica, Arial, sans-serif;
+  }
+  .quadrant-labels .ql-end { text-anchor: end; }
+  .axis-labels .ax {
+    fill: #6b7688; font-size: 11px; letter-spacing: 0.09em;
+    text-transform: uppercase; font-family: Helvetica, Arial, sans-serif;
+  }
+  .axis-labels .ax-start { text-anchor: start; }
+  .axis-labels .ax-end { text-anchor: end; }
+  .axis-labels .ax-vert { text-anchor: middle; }
+  .marker-halo { fill: rgba(255,255,255,0.10); }
+  .marker-ring { fill: none; stroke: rgba(255,255,255,0.55); stroke-width: 1.4; }
+  .marker-core { fill: #ffffff; }
+  .ideo-labels text {
+    fill: #ffffff; stroke: rgba(0,0,0,0.72); stroke-width: 3px; paint-order: stroke;
+    font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 500;
+    text-anchor: middle; dominant-baseline: middle;
+  }
+`;
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildExportSvg(svgEl, { kicker, title, footer }) {
+  const vb = svgEl.viewBox.baseVal;
+  const chart = Math.min(
+    EXPORT_W - EXPORT_PAD * 2,
+    EXPORT_H - EXPORT_PAD * 2 - EXPORT_HEAD - EXPORT_FOOT
+  );
+  const chartX = Math.round((EXPORT_W - chart) / 2);
+  const chartY = EXPORT_PAD + EXPORT_HEAD;
+  const inner = svgEl.innerHTML;
+
+  return (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="' + EXPORT_W + '" height="' + EXPORT_H +
+    '" viewBox="0 0 ' + EXPORT_W + " " + EXPORT_H + '">' +
+    "<defs><style>" + EXPORT_CSS + "</style></defs>" +
+    '<rect width="' + EXPORT_W + '" height="' + EXPORT_H + '" fill="#0b0d12"/>' +
+    '<text x="' + EXPORT_PAD + '" y="' + (EXPORT_PAD + 26) +
+    '" fill="#6b7688" font-family="Helvetica, Arial, sans-serif" font-size="20" font-weight="600" letter-spacing="2.4">' +
+    escapeXml(kicker) + "</text>" +
+    '<text x="' + EXPORT_PAD + '" y="' + (EXPORT_PAD + 84) +
+    '" fill="#e8ecf3" font-family="Helvetica, Arial, sans-serif" font-size="46" font-weight="700">' +
+    escapeXml(title) + "</text>" +
+    '<svg x="' + chartX + '" y="' + chartY + '" width="' + chart + '" height="' + chart +
+    '" viewBox="' + vb.x + " " + vb.y + " " + vb.width + " " + vb.height + '">' + inner + "</svg>" +
+    '<text x="' + EXPORT_PAD + '" y="' + (chartY + chart + 56) +
+    '" fill="#9aa4b4" font-family="Helvetica, Arial, sans-serif" font-size="21">' +
+    escapeXml(footer) + "</text>" +
+    '<text x="' + EXPORT_PAD + '" y="' + (chartY + chart + 92) +
+    '" fill="#4d5766" font-family="Helvetica, Arial, sans-serif" font-size="18" letter-spacing="1.6">' +
+    "POLITICAL COMPASS</text>" +
+    "</svg>"
+  );
+}
+
+function svgToPngBlob(svgEl, meta) {
+  const markup = buildExportSvg(svgEl, meta);
+  const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = EXPORT_W;
+      canvas.height = EXPORT_H;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#0b0d12";
+      ctx.fillRect(0, 0, EXPORT_W, EXPORT_H);
+      ctx.drawImage(img, 0, 0, EXPORT_W, EXPORT_H);
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Could not encode the image"));
+      }, "image/png");
+    };
+    img.onerror = () => reject(new Error("Could not render the chart"));
+    img.src = url;
+  });
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function copyBlob(blob) {
+  if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
+    throw new Error("Clipboard images are not supported in this browser");
+  }
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+}
+
+function flash(button, text) {
+  const original = button.dataset.label || button.textContent;
+  button.dataset.label = original;
+  button.textContent = text;
+  button.classList.add("is-done");
+  setTimeout(() => {
+    button.textContent = original;
+    button.classList.remove("is-done");
+  }, 1600);
+}
+
+async function exportChart(kind, mode) {
+  if (!lastResult) return;
+  const isCompass = kind === "compass";
+  const svgEl = isCompass ? document.getElementById("compass") : document.getElementById("ideology");
+  const button = isCompass
+    ? mode === "copy" ? el.copyCompass : el.saveCompass
+    : mode === "copy" ? el.copyIdeology : el.saveIdeology;
+
+  const title = isCompass ? lastResult.quadrant : lastResult.ideology;
+  const footer =
+    "Economic " + signed(lastResult.economic) +
+    "  ·  Social " + signed(lastResult.social) +
+    "  ·  Confidence " + Math.round(lastResult.confidence * 100) + "%";
+
+  button.disabled = true;
+  try {
+    const blob = await svgToPngBlob(svgEl, {
+      kicker: "@" + lastResult.handle + "  ·  " + lastResult.count + " POSTS",
+      title,
+      footer,
+    });
+
+    if (mode === "copy") {
+      try {
+        await copyBlob(blob);
+        flash(button, "Copied");
+      } catch (_) {
+        downloadBlob(blob, kind + "-" + lastResult.handle + ".png");
+        flash(button, "Saved");
+      }
+    } else {
+      downloadBlob(blob, kind + "-" + lastResult.handle + ".png");
+      flash(button, "Saved");
+    }
+  } catch (err) {
+    setStatus(err?.message || "Could not export the image.", "err");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderReading(result, posts, handle) {
   el.summary.textContent = result.summary || "No summary returned.";
-
   el.themes.innerHTML = "";
   for (const theme of (result.themes || []).slice(0, 8)) {
     const li = document.createElement("li");
@@ -756,6 +969,18 @@ async function run() {
     renderCompass(economic, social, confidence);
     const cell = renderIdeology(economic, social);
     renderReading(raw, posts, user.screen_name || handle);
+
+    lastResult = {
+      handle: user.screen_name || handle,
+      economic,
+      social,
+      confidence,
+      quadrant: quadrantOf(economic, social),
+      ideology: cell.name,
+      count: posts.length,
+    };
+    renderCaption(buildCaption(lastResult));
+
     el.results.hidden = false;
     el.results.scrollIntoView({ behavior: "smooth", block: "start" });
 
@@ -811,6 +1036,27 @@ function restoreSettings() {
 /* ---------------- wiring ---------------- */
 
 el.run.addEventListener("click", run);
+
+el.copyCompass.addEventListener("click", () => exportChart("compass", "copy"));
+el.saveCompass.addEventListener("click", () => exportChart("compass", "save"));
+el.copyIdeology.addEventListener("click", () => exportChart("ideology", "copy"));
+el.saveIdeology.addEventListener("click", () => exportChart("ideology", "save"));
+
+el.copyCaption.addEventListener("click", async () => {
+  const text = el.caption.textContent || "";
+  if (!text || text === "—") return;
+  try {
+    await navigator.clipboard.writeText(text);
+    flash(el.copyCaption, "Copied");
+  } catch (_) {
+    const range = document.createRange();
+    range.selectNodeContents(el.caption);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    flash(el.copyCaption, "Selected");
+  }
+});
 
 el.loadModels.addEventListener("click", async () => {
   const apiKey = el.apiKey.value.trim();

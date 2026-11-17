@@ -33,10 +33,10 @@ to `main`, to `https://<you>.github.io/twitter-leaning/`.
 
 ## Use
 
-1. Paste a Groq key from <https://console.groq.com/keys>. It stays in `localStorage` and goes only to
-   `api.groq.com`.
-2. Enter a handle without the `@`.
-3. Pick 10–500 posts (default 100) and press **Analyse account**.
+1. Enter a handle without the `@`.
+2. Pick 10–500 posts (default 100) and press **Analyse account**.
+3. Each chart has **Copy** (1080×1350 PNG to the clipboard) and **PNG** (download). **In short** has
+   **Copy text** for a three-sentence caption.
 
 ## Models
 
