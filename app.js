@@ -4,15 +4,16 @@
  */
 
 import {
-  CHARS_PER_TOKEN,
-  INPUT_TOKEN_BUDGET,
   OUTPUT_TOKENS,
   PARTIAL_TOKENS,
+  TooLargeError,
   buildPrompt,
   buildSynthesisPrompt,
   chunkPosts,
+  entryTokenBudget,
   estimateTokens,
   isReasoningModel,
+  isSizeError,
   parseModelJson,
   windowLabel,
 } from "./shared/prompts.js";
@@ -377,6 +378,7 @@ async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retr
 
   if (!res.ok) {
     const message = body?.error?.message || "Groq returned " + res.status;
+    if (isSizeError(res.status, message)) throw new TooLargeError("Groq: " + message);
     const failed = body?.error?.failed_generation;
     if (failed && retries > 0) {
       try {
@@ -427,36 +429,66 @@ async function callGroq({ apiKey, model, prompt, maxTokens = OUTPUT_TOKENS, retr
   }
 }
 
+async function scoreEntries({ apiKey, model, handle, entries, meta, partials, depth }) {
+  try {
+    const prompt = buildPrompt(handle, entries, meta);
+    partials.push(await callGroq({ apiKey, model, prompt, maxTokens: PARTIAL_TOKENS }));
+  } catch (err) {
+    if (err.tooLarge && entries.length > 1 && depth < 8) {
+      const mid = Math.ceil(entries.length / 2);
+      const next = { ...meta, total: Math.max(2, meta.total) };
+      await scoreEntries({ apiKey, model, handle, entries: entries.slice(0, mid), meta: next, partials, depth: depth + 1 });
+      await scoreEntries({ apiKey, model, handle, entries: entries.slice(mid), meta: next, partials, depth: depth + 1 });
+      return;
+    }
+    throw err;
+  }
+}
+
 async function analysePosts({ apiKey, model, handle, posts, onProgress }) {
   const window = windowLabel(posts);
-  const chunks = chunkPosts(posts, INPUT_TOKEN_BUDGET * CHARS_PER_TOKEN);
+  const chunks = chunkPosts(posts, entryTokenBudget(model, PARTIAL_TOKENS));
 
   if (chunks.length <= 1) {
-    onProgress?.("Asking " + model + " to place the account…");
-    const prompt = buildPrompt(handle, chunks[0] || [], {
-      index: 1,
-      total: 1,
-      totalPosts: posts.length,
-      window,
-    });
-    return { result: await callGroq({ apiKey, model, prompt }), batches: 1 };
+    const entries = chunks[0] || [];
+    try {
+      onProgress?.("Asking " + model + " to place the account…");
+      const prompt = buildPrompt(handle, entries, {
+        index: 1,
+        total: 1,
+        totalPosts: posts.length,
+        window,
+      });
+      return { result: await callGroq({ apiKey, model, prompt }), batches: 1 };
+    } catch (err) {
+      if (!err.tooLarge || entries.length < 2) throw err;
+    }
   }
 
   const partials = [];
+  const total = Math.max(2, chunks.length);
   for (let i = 0; i < chunks.length; i++) {
     onProgress?.("Analysing batch " + (i + 1) + " of " + chunks.length + "…");
-    const prompt = buildPrompt(handle, chunks[i], {
-      index: i + 1,
-      total: chunks.length,
-      totalPosts: posts.length,
-      window,
+    await scoreEntries({
+      apiKey,
+      model,
+      handle,
+      entries: chunks[i],
+      meta: { index: i + 1, total, totalPosts: posts.length, window },
+      partials,
+      depth: 0,
     });
-    partials.push(await callGroq({ apiKey, model, prompt, maxTokens: PARTIAL_TOKENS }));
   }
 
   onProgress?.("Merging " + chunks.length + " batches…");
   const synth = buildSynthesisPrompt(handle, partials, posts.length, window);
-  return { result: await callGroq({ apiKey, model, prompt: synth }), batches: chunks.length };
+  try {
+    return { result: await callGroq({ apiKey, model, prompt: synth }), batches: chunks.length };
+  } catch (err) {
+    if (!err.tooLarge) throw err;
+    const compact = buildSynthesisPrompt(handle, partials, posts.length, window, { compact: true });
+    return { result: await callGroq({ apiKey, model, prompt: compact }), batches: chunks.length };
+  }
 }
 
 async function analyseViaProxy({ model, handle, posts, onProgress }) {

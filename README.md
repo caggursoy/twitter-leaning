@@ -71,14 +71,18 @@ npx wrangler deploy
 Then set `PROXY_URL` in `app.js` to the deployed URL. The API key field disappears and the app posts to
 the proxy instead. `?proxy=https://...` overrides it for testing.
 
-`node worker/test/harness.mjs` runs the worker in Node against a stubbed Groq and a fake KV: 22 checks
-covering CORS, the rate limit, batching, quota accounting and the error paths.
+`node worker/test/harness.mjs` runs the worker in Node against a stubbed Groq and a fake KV: 27 checks
+covering CORS, the rate limit, batching, quota accounting, context-window recovery and the error paths.
+`node worker/test/measure.mjs` prints prompt sizes for 100 and 500 posts across prose, URLs, emoji and
+CJK.
 
 ## Limits
 
 - A 500-post timeline is ~20,000 tokens, more than the 8,000 TPM free tier allows in one request. The
-  app splits it into ~5,000-token batches, scores each, then merges them. A 500-post run takes about
-  three minutes; 100 posts is a single call.
+  app splits it into batches sized by a conservative token estimate, scores each, then merges them. A
+  500-post run takes about three minutes; 100 posts is usually a single call.
+- If Groq still rejects a batch as too large, that batch is halved and retried, recursively, down to a
+  single post. A rejected synthesis call is retried without the quoted evidence.
 - The placement is a heuristic reading of recent public text, not a measurement of anyone's beliefs.
   Reposts and quote-tweets count as signal.
 - FxTwitter is third-party and can rate limit or change.

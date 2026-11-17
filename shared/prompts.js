@@ -5,9 +5,54 @@
 
 export const TWEET_CHAR_LIMIT = 420;
 export const CHARS_PER_TOKEN = 4;
-export const INPUT_TOKEN_BUDGET = 5000;
 export const OUTPUT_TOKENS = 2000;
 export const PARTIAL_TOKENS = 1400;
+
+/* Free tier allows 8,000 tokens per minute, so input plus output has to stay under it. */
+export const TPM_LIMIT = 8000;
+export const TPM_INPUT_BUDGET = 5000;
+
+/* Tokens reserved for the instruction block appended to every prompt. */
+const INSTRUCTION_TOKENS = 520;
+
+export class TooLargeError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TooLargeError";
+    this.tooLarge = true;
+  }
+}
+
+/* Groq answers 400 with one of these when input + max_tokens exceeds the context
+ * window, and 413 when the body is too big. */
+export function isSizeError(status, message) {
+  if (status === 413) return true;
+  if (status !== 400) return false;
+  return /context|too large|too long|reduce the length|maximum context|tokens per minute|TPM|requested .* tokens/i.test(
+    String(message || "")
+  );
+}
+
+export function contextWindow(model) {
+  const id = String(model || "");
+  if (/gpt-oss/i.test(id)) return 131072;
+  if (/llama-3\.3-70b/i.test(id)) return 131072;
+  if (/llama-3\.1-8b/i.test(id)) return 131072;
+  if (/qwen/i.test(id)) return 32768;
+  return 32768;
+}
+
+/* Input tokens allowed for one request: the smaller of the TPM share and what the
+ * context window leaves after the requested output. */
+export function inputTokenBudget(model, maxOutput = PARTIAL_TOKENS) {
+  const byContext = contextWindow(model) - maxOutput - 1024;
+  return Math.max(1200, Math.min(TPM_INPUT_BUDGET, byContext));
+}
+
+/* Budget for the post lines themselves, after reserving the instruction block. */
+export function entryTokenBudget(model, maxOutput = PARTIAL_TOKENS) {
+  return Math.max(600, inputTokenBudget(model, maxOutput) - INSTRUCTION_TOKENS);
+}
 
 export function fmtDate(unixSeconds) {
   if (!unixSeconds) return "";
@@ -34,20 +79,49 @@ export function postLine(post, index) {
   return "[" + (index + 1) + "] id=" + post.id + " " + fmtDate(post.created_timestamp) + kind + "\n" + text + "\n";
 }
 
-export function chunkPosts(posts, charBudget) {
+/* Conservative token estimate. Prose runs about four characters per token, but
+ * digits, URLs and non-ASCII text tokenise far worse, so they are counted
+ * separately rather than assuming a flat ratio. */
+export function estimateTokens(text) {
+  const s = String(text || "");
+  if (!s) return 0;
+  let ascii = 0;
+  let digits = 0;
+  let other = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if (c < 128) {
+      if (c >= 48 && c <= 57) digits++;
+      else ascii++;
+    } else {
+      other++;
+    }
+  }
+  return Math.ceil(ascii / 4 + digits / 2 + other / 1.5);
+}
+
+/* Split posts into batches that fit a token budget. A non-finite or absurd
+ * budget falls back to a safe default instead of collapsing into one batch. */
+export function chunkPosts(posts, tokenBudget) {
+  const budget =
+    Number.isFinite(tokenBudget) && tokenBudget > 200 ? tokenBudget : TPM_INPUT_BUDGET - INSTRUCTION_TOKENS;
+
   const chunks = [];
   let current = [];
   let used = 0;
+
   posts.forEach((post, i) => {
     const entry = { post, line: postLine(post, i) };
-    if (current.length && used + entry.line.length > charBudget) {
+    const cost = estimateTokens(entry.line) + 4;
+    if (current.length && used + cost > budget) {
       chunks.push(current);
       current = [];
       used = 0;
     }
     current.push(entry);
-    used += entry.line.length;
+    used += cost;
   });
+
   if (current.length) chunks.push(current);
   return chunks;
 }
@@ -98,12 +172,14 @@ export function buildPrompt(handle, entries, meta) {
   return header + entries.map((e) => e.line).join("") + (meta.total > 1 ? PARTIAL_INSTRUCTION : FINAL_INSTRUCTION);
 }
 
-export function buildSynthesisPrompt(handle, partials, totalPosts, window) {
+export function buildSynthesisPrompt(handle, partials, totalPosts, window, opts = {}) {
   const blocks = partials.map((p, i) => {
     const themes = (p.themes || []).join(", ");
-    const quotes = (p.evidence || [])
-      .map((e) => "  - id=" + e.tweet_id + " \"" + String(e.quote || "").slice(0, 160) + "\"")
-      .join("\n");
+    const quotes = opts.compact
+      ? ""
+      : (p.evidence || [])
+          .map((e) => "  - id=" + e.tweet_id + " \"" + String(e.quote || "").slice(0, 160) + "\"")
+          .join("\n");
     return (
       "Batch " + (i + 1) + ": economic=" + p.economic + " social=" + p.social +
       " confidence=" + p.confidence + "\n" +
@@ -141,10 +217,6 @@ export function parseModelJson(raw) {
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) throw new Error("Model did not return JSON");
   return JSON.parse(text.slice(start, end + 1));
-}
-
-export function estimateTokens(text) {
-  return Math.ceil(String(text || "").length / CHARS_PER_TOKEN);
 }
 
 export function isReasoningModel(model) {

@@ -5,12 +5,16 @@
 import worker from "../src/index.js";
 
 const calls = [];
+const accepted = [];
 let groqMode = "ok";
 
 globalThis.fetch = async (url, opts) => {
   const body = JSON.parse(opts.body);
-  calls.push({ model: body.model, max: body.max_completion_tokens, effort: body.reasoning_effort, json: !!body.response_format, chars: body.messages[1].content.length });
+  calls.push({ model: body.model, max: body.max_completion_tokens, effort: body.reasoning_effort, json: !!body.response_format, chars: body.messages[1].content.length, synth: body.messages[1].content.includes("BATCH RESULTS") });
 
+  if (groqMode === "toobig" && body.messages[1].content.length > 9000) {
+    return new Response(JSON.stringify({ error: { message: "Please reduce the length of the messages or completion.", type: "invalid_request_error" } }), { status: 400 });
+  }
   if (groqMode === "empty" && body.max_completion_tokens <= 1400) {
     return new Response(JSON.stringify({ choices: [{ message: { content: "" }, finish_reason: "length" }], usage: { completion_tokens_details: { reasoning_tokens: body.max_completion_tokens } } }), { status: 200 });
   }
@@ -22,6 +26,7 @@ globalThis.fetch = async (url, opts) => {
     summary: "Merged reading.", themes: ["labour"],
     evidence: [], caveats: "none",
   };
+  accepted.push({ chars: body.messages[1].content.length, synth: body.messages[1].content.includes("BATCH RESULTS") });
   return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payload) }, finish_reason: "stop" }] }), { status: 200 });
 };
 
@@ -108,7 +113,25 @@ res = await worker.fetch(req({ handle: "AOC", posts }, { ip: "6.6.6.6" }), env);
 check("empty completion recovers", res.status === 200, "status=" + res.status);
 check("budget doubled", calls.some((c) => c.max === 2800), JSON.stringify(calls.map((c) => c.max)));
 
-// 8. validation
+// 9. context-window rejection is split and retried
+store.clear();
+groqMode = "toobig";
+calls.length = 0;
+accepted.length = 0;
+res = await worker.fetch(req({ handle: "AOC", posts }, { ip: "4.4.4.4" }), env);
+body = await res.json();
+check("too-large input recovers", res.status === 200, "status=" + res.status);
+check("split produced more calls", calls.length > 3, "calls=" + calls.length);
+const batchOk = accepted.filter((c) => !c.synth);
+check(
+  "every accepted batch under limit",
+  batchOk.every((c) => c.chars <= 9000),
+  "max=" + Math.max(...batchOk.map((c) => c.chars))
+);
+check("synthesis ran", accepted.some((c) => c.synth), "synthCalls=" + accepted.filter((c) => c.synth).length);
+check("result still has scores", body.result && body.result.economic === -0.55, JSON.stringify(body.result && body.result.economic));
+
+// 10. validation
 groqMode = "ok";
 res = await worker.fetch(req({ handle: "", posts }, { ip: "7.7.7.7" }), env);
 check("missing handle 400", res.status === 400, "status=" + res.status);
